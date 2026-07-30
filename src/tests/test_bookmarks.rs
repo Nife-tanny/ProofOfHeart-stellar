@@ -1,6 +1,6 @@
 use super::helpers::*;
 use crate::{Category, Error};
-use soroban_sdk::String;
+use soroban_sdk::{Address, FromVal, String};
 
 #[test]
 fn test_save_and_get_saved_campaigns() {
@@ -175,4 +175,98 @@ fn test_save_campaign_then_cancel() {
     let campaign = client.get_campaign(&id);
     assert!(campaign.is_cancelled);
     assert!(!campaign.is_active);
+}
+
+#[test]
+fn test_save_campaign_emits_campaign_bookmarked_event() {
+    let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    let events_before = env.events().all().len();
+    client.save_campaign(&user, &id);
+    let events_after = env.events().all().len();
+
+    // Exactly one event should have been emitted
+    assert_eq!(
+        events_after - events_before,
+        1,
+        "save_campaign must emit exactly 1 event"
+    );
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let topics = &last_event.1;
+    let data = &last_event.2;
+
+    // Topic 0: event name symbol
+    let topic0: String = FromVal::from_val(env, &topics.get(0).unwrap());
+    assert_eq!(topic0, String::from_str(env, "campaign_bookmarked"));
+
+    // Topic 1: user address
+    assert_eq!(topics.len(), 2);
+    let topic1: Address = FromVal::from_val(env, &topics.get(1).unwrap());
+    assert_eq!(topic1, user);
+
+    // Data: campaign_id as u32
+    let payload: u32 = FromVal::from_val(env, &data);
+    assert_eq!(payload, id);
+}
+
+#[test]
+fn test_remove_saved_campaign_emits_campaign_unbookmarked_event() {
+    let (env, _admin, creator, user, _c2, _token, _token_admin, client) = setup_env();
+
+    let id = client.create_campaign(&make_params(
+        creator.clone(),
+        String::from_str(&env, "Campaign"),
+        String::from_str(&env, "Desc"),
+        1000,
+        30,
+        Category::Learner,
+        false,
+        0,
+        0i128,
+    ));
+
+    client.save_campaign(&user, &id);
+
+    let events_before = env.events().all().len();
+    client.remove_saved_campaign(&user, &id);
+    let events_after = env.events().all().len();
+
+    // Exactly one event should have been emitted
+    assert_eq!(
+        events_after - events_before,
+        1,
+        "remove_saved_campaign must emit exactly 1 event"
+    );
+
+    let events = env.events().all();
+    let last_event = events.last().unwrap();
+    let topics = &last_event.1;
+    let data = &last_event.2;
+
+    // Topic 0: event name symbol
+    let topic0: String = FromVal::from_val(env, &topics.get(0).unwrap());
+    assert_eq!(topic0, String::from_str(env, "campaign_unbookmarked"));
+
+    // Topic 1: user address
+    assert_eq!(topics.len(), 2);
+    let topic1: Address = FromVal::from_val(env, &topics.get(1).unwrap());
+    assert_eq!(topic1, user);
+
+    // Data: campaign_id as u32
+    let payload: u32 = FromVal::from_val(env, &data);
+    assert_eq!(payload, id);
 }
